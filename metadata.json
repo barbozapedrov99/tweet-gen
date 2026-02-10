@@ -1,5 +1,5 @@
 {
-  "name": "TweetGen AI",
-  "description": "Recreate and customize viral tweet designs with AI-powered image editing.",
+  "name": "Gerador de Tweets",
+  "description": "Crie e personalize tweets virais com edição de imagem por IA.",
   "requestFramePermissions": []
 }
