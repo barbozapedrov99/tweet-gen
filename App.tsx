@@ -4,7 +4,7 @@ import { TweetCard } from './components/TweetCard';
 import { DEFAULT_TWEET_DATA, BACKGROUND_OPTIONS } from './constants';
 import { TweetData, Guideline } from './types';
 import { editImageWithGemini, generateImageWithGemini } from './services/geminiService';
-import { Wand2, Loader2, Upload, AlertCircle, Download, Undo, Redo, Type, Move, Edit3, Eye, Image as ImageIcon, Sparkles, X, Palette, Maximize, User } from 'lucide-react';
+import { Wand2, Loader2, Upload, AlertCircle, Download, Undo, Redo, Type, Move, Edit3, Eye, Image as ImageIcon, X, Palette, Maximize, User } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 
 const App: React.FC = () => {
