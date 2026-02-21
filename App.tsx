@@ -8,8 +8,18 @@ import { Wand2, Loader2, Upload, AlertCircle, Download, Undo, Redo, Type, Move, 
 import * as htmlToImage from 'html-to-image';
 
 const App: React.FC = () => {
+  type CarouselState = {
+    slides: TweetData[];
+    activeSlideIndex: number;
+  };
+
+  const MAX_SLIDES = 10;
+
   // State
-  const [tweetData, setTweetData] = useState<TweetData>(DEFAULT_TWEET_DATA);
+  const [carouselState, setCarouselState] = useState<CarouselState>({
+    slides: [DEFAULT_TWEET_DATA],
+    activeSlideIndex: 0,
+  });
   const [prompt, setPrompt] = useState('');
   const [imageGenerationPrompt, setImageGenerationPrompt] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -23,8 +33,8 @@ const App: React.FC = () => {
   const [mediaMode, setMediaMode] = useState<'upload' | 'generate'>('upload');
 
   // History State for Undo/Redo
-  const [history, setHistory] = useState<TweetData[]>([]);
-  const [redoStack, setRedoStack] = useState<TweetData[]>([]);
+  const [history, setHistory] = useState<CarouselState[]>([]);
+  const [redoStack, setRedoStack] = useState<CarouselState[]>([]);
   
   // Scale State (Screen Preview)
   const [scale, setScale] = useState(0.5);
@@ -61,6 +71,23 @@ const App: React.FC = () => {
 
   // Used to track value before editing started (for text inputs)
   const preEditStateRef = useRef<TweetData | null>(null);
+
+  const tweetData = carouselState.slides[carouselState.activeSlideIndex];
+
+  const cloneSlide = useCallback((slide: TweetData): TweetData => ({
+    ...slide,
+    headerPosition: { ...slide.headerPosition },
+    contentPosition: { ...slide.contentPosition },
+    tweetImagePosition: { ...slide.tweetImagePosition },
+  }), []);
+
+  const updateTweetData = useCallback((updater: (prev: TweetData) => TweetData) => {
+    setCarouselState(prev => {
+      const updatedSlides = [...prev.slides];
+      updatedSlides[prev.activeSlideIndex] = updater(updatedSlides[prev.activeSlideIndex]);
+      return { ...prev, slides: updatedSlides };
+    });
+  }, []);
 
   // --- Font Loading ---
   useEffect(() => {
@@ -121,10 +148,15 @@ const App: React.FC = () => {
 
   // --- History Management ---
 
-  const saveToHistory = useCallback((prevState: TweetData) => {
-    setHistory(prev => [...prev, prevState]);
+  const cloneCarouselState = useCallback((state: CarouselState): CarouselState => ({
+    slides: state.slides.map(cloneSlide),
+    activeSlideIndex: state.activeSlideIndex,
+  }), [cloneSlide]);
+
+  const saveToHistory = useCallback((prevState: CarouselState) => {
+    setHistory(prev => [...prev, cloneCarouselState(prevState)]);
     setRedoStack([]); 
-  }, []);
+  }, [cloneCarouselState]);
 
   const handleUndo = useCallback(() => {
     setHistory((prevHistory) => {
@@ -132,11 +164,11 @@ const App: React.FC = () => {
       const previousState = prevHistory[prevHistory.length - 1];
       const newHistory = prevHistory.slice(0, -1);
       
-      setRedoStack(prev => [tweetData, ...prev]); 
-      setTweetData(previousState);
+      setRedoStack(prev => [cloneCarouselState(carouselState), ...prev]); 
+      setCarouselState(previousState);
       return newHistory;
     });
-  }, [tweetData]);
+  }, [carouselState, cloneCarouselState]);
 
   const handleRedo = useCallback(() => {
     setRedoStack((prevRedo) => {
@@ -144,11 +176,11 @@ const App: React.FC = () => {
         const nextState = prevRedo[0];
         const newRedo = prevRedo.slice(1);
         
-        setHistory(prev => [...prev, tweetData]);
-        setTweetData(nextState);
+        setHistory(prev => [...prev, cloneCarouselState(carouselState)]);
+        setCarouselState(nextState);
         return newRedo;
     });
-  }, [tweetData]);
+  }, [carouselState, cloneCarouselState]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -170,7 +202,7 @@ const App: React.FC = () => {
   // --- Input Handlers ---
 
   const handleInputChange = (field: keyof TweetData, value: string) => {
-    setTweetData(prev => ({ ...prev, [field]: value }));
+    updateTweetData(prev => ({ ...prev, [field]: value }));
   };
 
   const handleInputFocus = () => {
@@ -179,7 +211,7 @@ const App: React.FC = () => {
 
   const handleInputBlur = (field: keyof TweetData) => {
     if (preEditStateRef.current && preEditStateRef.current[field] !== tweetData[field]) {
-      saveToHistory(preEditStateRef.current);
+      saveToHistory({ ...carouselState, slides: carouselState.slides.map((slide, idx) => idx === carouselState.activeSlideIndex ? preEditStateRef.current! : slide) });
     }
     preEditStateRef.current = null;
   };
@@ -187,10 +219,10 @@ const App: React.FC = () => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      saveToHistory(tweetData);
+      saveToHistory(carouselState);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setTweetData(prev => ({ ...prev, avatarUrl: reader.result as string }));
+        updateTweetData(prev => ({ ...prev, avatarUrl: reader.result as string }));
       };
       reader.readAsDataURL(file);
     }
@@ -200,10 +232,10 @@ const App: React.FC = () => {
   const handleTweetImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      saveToHistory(tweetData);
+      saveToHistory(carouselState);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setTweetData(prev => ({ 
+        updateTweetData(prev => ({ 
             ...prev, 
             tweetImage: reader.result as string,
             tweetImagePosition: { x: 0, y: 0 },
@@ -240,7 +272,7 @@ const App: React.FC = () => {
       height: elementHeight
     };
     
-    saveToHistory(tweetData);
+    saveToHistory(carouselState);
   };
 
   const handleDragStart = (e: React.MouseEvent, element: 'header' | 'content' | 'tweetImage') => {
@@ -258,7 +290,7 @@ const App: React.FC = () => {
 
   // 2. Resizing (Visual)
   const initiateResize = (clientX: number, clientY: number, element: 'header' | 'content' | 'tweetImage', handle: string) => {
-    saveToHistory(tweetData);
+    saveToHistory(carouselState);
     setResizingItem(element);
     setActiveHandle(handle);
     
@@ -322,11 +354,11 @@ const App: React.FC = () => {
         newScale = Math.max(0.2, Math.min(newScale, 3.0)); // Clamp
 
         if (resizingItem === 'header') {
-            setTweetData(prev => ({ ...prev, headerScale: newScale }));
+            updateTweetData(prev => ({ ...prev, headerScale: newScale }));
         } else if (resizingItem === 'content') {
-            setTweetData(prev => ({ ...prev, contentScale: newScale }));
+            updateTweetData(prev => ({ ...prev, contentScale: newScale }));
         } else {
-            setTweetData(prev => ({ ...prev, tweetImageScale: newScale }));
+            updateTweetData(prev => ({ ...prev, tweetImageScale: newScale }));
         }
         return;
     }
@@ -368,11 +400,11 @@ const App: React.FC = () => {
     setGuidelines(activeGuidelines);
 
     if (draggingItem === 'header') {
-      setTweetData(prev => ({ ...prev, headerPosition: { x: newX, y: newY } }));
+      updateTweetData(prev => ({ ...prev, headerPosition: { x: newX, y: newY } }));
     } else if (draggingItem === 'content') {
-      setTweetData(prev => ({ ...prev, contentPosition: { x: newX, y: newY } }));
+      updateTweetData(prev => ({ ...prev, contentPosition: { x: newX, y: newY } }));
     } else {
-      setTweetData(prev => ({ ...prev, tweetImagePosition: { x: newX, y: newY } }));
+      updateTweetData(prev => ({ ...prev, tweetImagePosition: { x: newX, y: newY } }));
     }
   };
 
@@ -398,13 +430,13 @@ const App: React.FC = () => {
 
   // --- Inline Editing Logic ---
   const handleDoubleClick = (element: 'displayName' | 'handle' | 'content') => {
-      saveToHistory(tweetData);
+      saveToHistory(carouselState);
       setEditingField(element);
   };
 
   const handleEditChange = (value: string) => {
       if (editingField) {
-          setTweetData(prev => ({ ...prev, [editingField]: value }));
+          updateTweetData(prev => ({ ...prev, [editingField]: value }));
       }
   };
 
@@ -414,8 +446,8 @@ const App: React.FC = () => {
 
   // --- Background Logic ---
   const handleBackgroundChange = (bgStyle: string) => {
-    saveToHistory(tweetData);
-    setTweetData(prev => ({ ...prev, background: bgStyle }));
+    saveToHistory(carouselState);
+    updateTweetData(prev => ({ ...prev, background: bgStyle }));
   };
   
   // --- Gemini AI ---
@@ -431,9 +463,9 @@ const App: React.FC = () => {
     setIsProcessing(true);
     setError(null);
     try {
-      saveToHistory(tweetData);
+      saveToHistory(carouselState);
       const newAvatarBase64 = await editImageWithGemini(tweetData.avatarUrl, prompt);
-      setTweetData(prev => ({ ...prev, avatarUrl: newAvatarBase64 }));
+      updateTweetData(prev => ({ ...prev, avatarUrl: newAvatarBase64 }));
       setPrompt(''); 
     } catch (err: any) {
       setError(err.message || "Falha ao editar a imagem. Tente um comando diferente.");
@@ -450,9 +482,9 @@ const App: React.FC = () => {
       setIsGeneratingImage(true);
       setError(null);
       try {
-          saveToHistory(tweetData);
+          saveToHistory(carouselState);
           const newImageBase64 = await generateImageWithGemini(imageGenerationPrompt);
-          setTweetData(prev => ({
+          updateTweetData(prev => ({
               ...prev,
               tweetImage: newImageBase64,
               tweetImagePosition: { x: 0, y: 0 },
@@ -467,9 +499,109 @@ const App: React.FC = () => {
   };
 
   const removeTweetImage = () => {
-      saveToHistory(tweetData);
-      setTweetData(prev => ({ ...prev, tweetImage: null }));
+      saveToHistory(carouselState);
+      updateTweetData(prev => ({ ...prev, tweetImage: null }));
   }
+
+  const handleSelectSlide = (index: number) => {
+    setCarouselState(prev => ({ ...prev, activeSlideIndex: index }));
+    setEditingField(null);
+  };
+
+  const handleAddSlide = () => {
+    if (carouselState.slides.length >= MAX_SLIDES) {
+      setError(`Limite de ${MAX_SLIDES} slides atingido.`);
+      return;
+    }
+
+    saveToHistory(carouselState);
+    const baseSlide = carouselState.slides[carouselState.activeSlideIndex] ?? DEFAULT_TWEET_DATA;
+    const newSlide = cloneSlide(baseSlide);
+    setCarouselState(prev => ({
+      slides: [...prev.slides, newSlide],
+      activeSlideIndex: prev.slides.length,
+    }));
+    setError(null);
+  };
+
+  const handleDuplicateSlide = () => {
+    if (carouselState.slides.length >= MAX_SLIDES) {
+      setError(`Limite de ${MAX_SLIDES} slides atingido.`);
+      return;
+    }
+
+    saveToHistory(carouselState);
+    const idx = carouselState.activeSlideIndex;
+    const newSlide = cloneSlide(carouselState.slides[idx]);
+
+    setCarouselState(prev => ({
+      slides: [...prev.slides.slice(0, idx + 1), newSlide, ...prev.slides.slice(idx + 1)],
+      activeSlideIndex: idx + 1,
+    }));
+    setError(null);
+  };
+
+  const handleRemoveSlide = () => {
+    if (carouselState.slides.length <= 1) {
+      setError('É necessário manter pelo menos 1 slide.');
+      return;
+    }
+
+    saveToHistory(carouselState);
+    const idx = carouselState.activeSlideIndex;
+
+    setCarouselState(prev => {
+      const updatedSlides = prev.slides.filter((_, slideIndex) => slideIndex !== idx);
+      return {
+        slides: updatedSlides,
+        activeSlideIndex: Math.max(0, Math.min(idx, updatedSlides.length - 1)),
+      };
+    });
+    setError(null);
+  };
+
+  const handleMoveSlide = (direction: 'left' | 'right') => {
+    const idx = carouselState.activeSlideIndex;
+    const targetIndex = direction === 'left' ? idx - 1 : idx + 1;
+
+    if (targetIndex < 0 || targetIndex >= carouselState.slides.length) return;
+
+    saveToHistory(carouselState);
+    setCarouselState(prev => {
+      const updatedSlides = [...prev.slides];
+      [updatedSlides[idx], updatedSlides[targetIndex]] = [updatedSlides[targetIndex], updatedSlides[idx]];
+      return {
+        slides: updatedSlides,
+        activeSlideIndex: targetIndex,
+      };
+    });
+  };
+
+  const downloadCurrentPreview = async (filename: string) => {
+    if (!previewRef.current) return;
+
+    const options = {
+      quality: 0.95,
+      backgroundColor: '#ffffff',
+      width: 1080,
+      height: 1440,
+      pixelRatio: 1,
+      style: {
+        transform: 'none',
+        transformOrigin: 'top left',
+        margin: '0',
+      },
+      filter: (node: HTMLElement) => {
+        return !node.className?.includes?.('resize') && node.tagName !== 'TEXTAREA' && node.tagName !== 'INPUT' && !node.className?.includes?.('absolute');
+      }
+    };
+
+    const dataUrl = await htmlToImage.toJpeg(previewRef.current, options);
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = dataUrl;
+    link.click();
+  };
 
   const handleDownload = async () => {
     if (previewRef.current) {
@@ -483,34 +615,38 @@ const App: React.FC = () => {
         // Allow UI to update before snapshot
         await new Promise(resolve => setTimeout(resolve, 50));
 
-        const options = {
-            quality: 0.95, 
-            backgroundColor: '#ffffff',
-            width: 1080,
-            height: 1440,
-            pixelRatio: 1, 
-            style: {
-                transform: 'none', 
-                transformOrigin: 'top left',
-                margin: '0',
-            },
-            filter: (node: HTMLElement) => {
-               // Exclude resize handles and inputs from screenshot if any remain
-               return !node.className?.includes?.('resize') && node.tagName !== 'TEXTAREA' && node.tagName !== 'INPUT' && !node.className?.includes?.('absolute');
-            }
-        };
-
-        const dataUrl = await htmlToImage.toJpeg(previewRef.current, options);
-        
-        const link = document.createElement('a');
-        const ext = 'jpg';
-        link.download = `post-tweet-${Date.now()}.${ext}`;
-        link.href = dataUrl;
-        link.click();
+        await downloadCurrentPreview(`post-tweet-${Date.now()}.jpg`);
       } catch (err) {
         console.error('Download failed', err);
         setError("Falha ao gerar o download da imagem.");
       }
+    }
+  };
+
+  const handleDownloadCarousel = async () => {
+    if (!previewRef.current) return;
+
+    const originalSlideIndex = carouselState.activeSlideIndex;
+
+    try {
+      setGuidelines([]);
+      setEditingField(null);
+      setDraggingItem(null);
+      setResizingItem(null);
+      setError(null);
+
+      for (let i = 0; i < carouselState.slides.length; i += 1) {
+        setCarouselState(prev => ({ ...prev, activeSlideIndex: i }));
+        await new Promise(resolve => setTimeout(resolve, 120));
+        const slideNumber = String(i + 1).padStart(2, '0');
+        await downloadCurrentPreview(`carrossel-${slideNumber}.jpg`);
+      }
+
+      setCarouselState(prev => ({ ...prev, activeSlideIndex: originalSlideIndex }));
+    } catch (err) {
+      console.error('Carousel download failed', err);
+      setError('Falha ao gerar o download do carrossel.');
+      setCarouselState(prev => ({ ...prev, activeSlideIndex: originalSlideIndex }));
     }
   };
 
@@ -565,6 +701,41 @@ const App: React.FC = () => {
           </div>
         </header>
 
+        {/* Carousel Controls */}
+        <section className="space-y-3 border border-gray-200 rounded-xl p-4 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Carrossel</h2>
+            <span className="text-xs text-gray-500">Slide {carouselState.activeSlideIndex + 1} de {carouselState.slides.length}</span>
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={handleAddSlide} disabled={carouselState.slides.length >= MAX_SLIDES} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold py-2 rounded-lg">+ Novo slide</button>
+            <button onClick={handleDuplicateSlide} disabled={carouselState.slides.length >= MAX_SLIDES} className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold py-2 rounded-lg">Duplicar</button>
+            <button onClick={handleRemoveSlide} disabled={carouselState.slides.length <= 1} className="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold py-2 rounded-lg">Remover</button>
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={() => handleMoveSlide('left')} disabled={carouselState.activeSlideIndex === 0} className="flex-1 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-50 text-xs font-semibold py-2 rounded-lg">Mover ←</button>
+            <button onClick={() => handleMoveSlide('right')} disabled={carouselState.activeSlideIndex === carouselState.slides.length - 1} className="flex-1 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-50 text-xs font-semibold py-2 rounded-lg">Mover →</button>
+          </div>
+
+          <div className="grid grid-cols-5 gap-2">
+            {carouselState.slides.map((_, index) => (
+              <button
+                key={`slide-${index}`}
+                onClick={() => handleSelectSlide(index)}
+                className={`h-9 rounded-md text-xs font-semibold border transition-colors ${
+                  index === carouselState.activeSlideIndex
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                {index + 1}
+              </button>
+            ))}
+          </div>
+        </section>
+
         {/* Background Selector */}
         <section className="space-y-4">
              <div className="flex items-center gap-2 mb-2">
@@ -604,11 +775,11 @@ const App: React.FC = () => {
               <div className="space-y-4">
                  <div className="flex items-center gap-3">
                     <span className="text-xs w-16 text-gray-500 font-medium">Cabeçalho</span>
-                    <input type="range" min="0.5" max="2.0" step="0.05" value={tweetData.headerScale} onChange={(e) => { setTweetData(p => ({...p, headerScale: parseFloat(e.target.value)})); saveToHistory(tweetData); }} className="flex-1 accent-blue-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"/>
+                    <input type="range" min="0.5" max="2.0" step="0.05" value={tweetData.headerScale} onChange={(e) => { updateTweetData(p => ({...p, headerScale: parseFloat(e.target.value)})); saveToHistory(carouselState); }} className="flex-1 accent-blue-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"/>
                  </div>
                  <div className="flex items-center gap-3">
                     <span className="text-xs w-16 text-gray-500 font-medium">Texto</span>
-                    <input type="range" min="0.5" max="2.0" step="0.05" value={tweetData.contentScale} onChange={(e) => { setTweetData(p => ({...p, contentScale: parseFloat(e.target.value)})); saveToHistory(tweetData); }} className="flex-1 accent-blue-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"/>
+                    <input type="range" min="0.5" max="2.0" step="0.05" value={tweetData.contentScale} onChange={(e) => { updateTweetData(p => ({...p, contentScale: parseFloat(e.target.value)})); saveToHistory(carouselState); }} className="flex-1 accent-blue-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"/>
                  </div>
               </div>
            </div>
@@ -781,13 +952,20 @@ const App: React.FC = () => {
         </section>
         
         {/* Desktop Download */}
-        <div className="hidden md:block pt-4 border-t border-gray-200 pb-2">
+        <div className="hidden md:grid grid-cols-2 gap-3 pt-4 border-t border-gray-200 pb-2">
              <button
                 onClick={handleDownload}
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
              >
                 <Download size={20} />
-                Baixar Post
+                Baixar Slide
+             </button>
+             <button
+                onClick={handleDownloadCarousel}
+                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-teal-200 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+             >
+                <Download size={20} />
+                Baixar Carrossel
              </button>
         </div>
       </div>
@@ -823,12 +1001,22 @@ const App: React.FC = () => {
             </div>
         </div>
 
-        <button
-            onClick={handleDownload}
-            className="md:hidden absolute bottom-24 right-6 bg-emerald-500 text-white p-4 rounded-full shadow-2xl z-50 flex items-center justify-center active:scale-95"
-        >
-            <Download size={28} />
-        </button>
+        <div className="md:hidden absolute bottom-24 right-6 z-50 flex flex-col gap-3">
+          <button
+              onClick={handleDownloadCarousel}
+              className="bg-teal-500 text-white p-4 rounded-full shadow-2xl flex items-center justify-center active:scale-95"
+              title="Baixar carrossel"
+          >
+              <Download size={24} />
+          </button>
+          <button
+              onClick={handleDownload}
+              className="bg-emerald-500 text-white p-4 rounded-full shadow-2xl flex items-center justify-center active:scale-95"
+              title="Baixar slide atual"
+          >
+              <Download size={28} />
+          </button>
+        </div>
       </div>
 
       {/* MOBILE NAV (LIGHT) */}
