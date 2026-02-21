@@ -16,6 +16,7 @@ export interface TweetData {
   headerScale: number;
   contentPosition: Position;
   contentScale: number;
+  contentWidth: number; // percentage width for content block
 
   // New Media Properties
   tweetImage?: string | null;

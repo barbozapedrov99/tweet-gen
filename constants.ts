@@ -53,6 +53,7 @@ export const DEFAULT_TWEET_DATA: TweetData = {
   headerScale: 1,
   contentPosition: { x: 0, y: 0 },
   contentScale: 1,
+  contentWidth: 100,
   
   background: BACKGROUND_OPTIONS[0].style,
 

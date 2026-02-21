@@ -207,12 +207,14 @@ export const TweetCard: React.FC<TweetCardProps> = ({
 
       {/* Tweet Body (Moveable & Scalable) */}
       <div 
-        className="group relative flex-shrink-0 w-full cursor-move touch-none rounded-lg mb-8"
+        className="group relative flex-shrink-0 cursor-move touch-none rounded-lg mb-8"
         onMouseDown={(e) => onMouseDown(e, 'content')}
         onTouchStart={(e) => onTouchStart(e, 'content')}
         style={{
             transform: `translate(${data.contentPosition.x}px, ${data.contentPosition.y}px) scale(${data.contentScale})`,
             transformOrigin: 'left top',
+            width: `${data.contentWidth ?? 100}%`,
+            maxWidth: '1300px',
         }}
       >
         <ResizeHandles onResizeStart={onResizeStart} element="content" />

@@ -328,6 +328,7 @@ const App: React.FC = () => {
           headerScale: sourceSlide.headerScale,
           contentPosition: { ...sourceSlide.contentPosition },
           contentScale: sourceSlide.contentScale,
+          contentWidth: sourceSlide.contentWidth ?? 100,
           tweetImagePosition: { ...sourceSlide.tweetImagePosition },
           tweetImageScale: sourceSlide.tweetImageScale,
         };
@@ -1213,6 +1214,11 @@ const App: React.FC = () => {
                     <span className="text-xs w-16 text-gray-500 font-medium">Texto</span>
                     <input type="range" min="0.5" max="2.0" step="0.05" value={tweetData.contentScale} onChange={(e) => { updateTweetData(p => ({...p, contentScale: parseFloat(e.target.value)})); saveToHistory(carouselState); }} className="flex-1 accent-blue-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"/>
                  </div>
+                 <div className="flex items-center gap-3">
+                    <span className="text-xs w-16 text-gray-500 font-medium">Largura</span>
+                    <input type="range" min="80" max="140" step="5" value={tweetData.contentWidth ?? 100} onChange={(e) => { updateTweetData(p => ({...p, contentWidth: parseFloat(e.target.value)})); saveToHistory(carouselState); }} className="flex-1 accent-blue-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"/>
+                    <span className="text-[11px] text-gray-500 w-10 text-right">{Math.round(tweetData.contentWidth ?? 100)}%</span>
+                 </div>
               </div>
            </div>
         </section>
@@ -1325,6 +1331,35 @@ Seu texto aqui"
                       className="flex-1 accent-blue-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                     />
                     <span className="text-[11px] text-gray-500 w-10 text-right">{slide.contentScale.toFixed(2)}x</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-gray-500 w-20">Largura</span>
+                    <input
+                      type="range"
+                      min="80"
+                      max="140"
+                      step="5"
+                      value={slide.contentWidth ?? 100}
+                      onChange={(e) => {
+                        const width = parseFloat(e.target.value);
+                        if (!preBulkContentStateRef.current) {
+                          preBulkContentStateRef.current = cloneCarouselState(carouselState);
+                          bulkContentChangedRef.current = false;
+                        }
+                        setCarouselState(prev => {
+                          const updatedSlides = [...prev.slides];
+                          if ((updatedSlides[index].contentWidth ?? 100) !== width) {
+                            bulkContentChangedRef.current = true;
+                          }
+                          updatedSlides[index] = { ...updatedSlides[index], contentWidth: width };
+                          return { ...prev, slides: updatedSlides };
+                        });
+                      }}
+                      onMouseUp={handleBulkContentBlur}
+                      onTouchEnd={handleBulkContentBlur}
+                      className="flex-1 accent-blue-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <span className="text-[11px] text-gray-500 w-10 text-right">{Math.round(slide.contentWidth ?? 100)}%</span>
                   </div>
                 </div>
               </div>
