@@ -15,43 +15,6 @@ const App: React.FC = () => {
 
   const MAX_SLIDES = 10;
 
-  const CONTENT_TEMPLATES = [
-    {
-      id: 'educacional',
-      name: 'Educacional (AIDA)',
-      build: (index: number, total: number) => {
-        if (index === 0) return 'Gancho forte: o erro que está travando seu resultado hoje.';
-        if (index === total - 1) return 'CTA: comente "QUERO" para receber o passo a passo completo.';
-        return `Ponto ${index}: explique a ideia principal com exemplo curto e prático.`;
-      }
-    },
-    {
-      id: 'storytelling',
-      name: 'Storytelling',
-      build: (index: number, total: number) => {
-        if (index === 0) return 'Tudo começou quando eu percebi um padrão que ninguém estava falando.';
-        if (index === total - 1) return 'Conclusão + CTA: salve esse carrossel para revisar quando for aplicar.';
-        return `Cena ${index}: descreva o conflito e a virada com objetividade.`;
-      }
-    },
-    {
-      id: 'lista',
-      name: 'Lista (Top insights)',
-      build: (index: number, total: number) => {
-        if (index === 0) return `Top ${Math.max(total - 2, 3)} ideias para melhorar seu conteúdo hoje.`;
-        if (index === total - 1) return 'Qual insight você vai aplicar primeiro? Responda nos comentários.';
-        return `Insight ${index}: dica prática + um micro-exemplo de aplicação.`;
-      }
-    }
-  ] as const;
-
-  const CONTENT_SNIPPETS = [
-    'Hook: você está cometendo esse erro sem perceber.',
-    'Prova: isso aumentou meus resultados em poucos dias.',
-    'Passo prático: abra agora e aplique em 2 minutos.',
-    'CTA: salve esse post para usar depois.'
-  ] as const;
-
   // State
   const [carouselState, setCarouselState] = useState<CarouselState>({
     slides: [DEFAULT_TWEET_DATA],
@@ -262,30 +225,6 @@ const App: React.FC = () => {
     }
     preBulkContentStateRef.current = null;
     bulkContentChangedRef.current = false;
-  };
-
-  const handleApplyTemplate = (templateId: string) => {
-    const selected = CONTENT_TEMPLATES.find(template => template.id === templateId);
-    if (!selected) return;
-
-    saveToHistory(carouselState);
-    setCarouselState(prev => ({
-      ...prev,
-      slides: prev.slides.map((slide, index) => ({
-        ...slide,
-        content: selected.build(index, prev.slides.length),
-      })),
-    }));
-  };
-
-  const handleApplySnippetToActiveSlide = (snippet: string) => {
-    saveToHistory(carouselState);
-    updateTweetData(prev => ({
-      ...prev,
-      content: prev.content.trim() ? `${prev.content.trim()}
-
-${snippet}` : snippet,
-    }));
   };
 
   const handleCopyStyleToAllSlides = () => {
@@ -836,6 +775,14 @@ ${snippet}` : snippet,
         return;
       }
 
+      if (e.key === 'Delete' && !isTypingTarget) {
+        e.preventDefault();
+        if (carouselState.slides.length > 1) {
+          handleRemoveSlide();
+        }
+        return;
+      }
+
       if (e.altKey && e.key === 'ArrowDown' && target?.getAttribute('data-bulk-textarea') === 'true') {
         e.preventDefault();
         focusNextBulkTextarea();
@@ -851,6 +798,7 @@ ${snippet}` : snippet,
     handleDownload,
     handleDownloadCarousel,
     handleDuplicateSlide,
+    handleRemoveSlide,
     handleRedo,
     handleSelectSlide,
     handleUndo,
@@ -941,25 +889,9 @@ ${snippet}` : snippet,
             ))}
           </div>
         </section>
-
         {/* Production Helpers */}
         <section className="space-y-3 border border-gray-200 rounded-xl p-4 bg-white">
           <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Acelerar Produção</h2>
-
-          <div className="space-y-2">
-            <p className="text-xs text-gray-500 font-medium">Template rápido de roteiro</p>
-            <div className="grid grid-cols-3 gap-2">
-              {CONTENT_TEMPLATES.map(template => (
-                <button
-                  key={template.id}
-                  onClick={() => handleApplyTemplate(template.id)}
-                  className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 rounded-lg"
-                >
-                  {template.name}
-                </button>
-              ))}
-            </div>
-          </div>
 
           <div className="space-y-2">
             <p className="text-xs text-gray-500 font-medium">Padronização visual</p>
@@ -971,23 +903,8 @@ ${snippet}` : snippet,
             </button>
           </div>
 
-          <div className="space-y-2">
-            <p className="text-xs text-gray-500 font-medium">Banco de snippets (slide atual)</p>
-            <div className="flex flex-wrap gap-2">
-              {CONTENT_SNIPPETS.map((snippet, idx) => (
-                <button
-                  key={`snippet-${idx}`}
-                  onClick={() => handleApplySnippetToActiveSlide(snippet)}
-                  className="text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1.5 rounded-md border border-emerald-100"
-                >
-                  + {snippet.split(':')[0]}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-2 leading-relaxed">
-            Atalhos: Ctrl/Cmd + ←/→ trocar slide · Ctrl/Cmd + D duplicar · Ctrl/Cmd + E baixar slide · Ctrl/Cmd + Shift + E baixar carrossel · Alt + ↓ próximo textarea
+            Atalhos: Ctrl/Cmd + ←/→ trocar slide · Ctrl/Cmd + D duplicar · Delete remover slide atual · Ctrl/Cmd + E baixar slide · Ctrl/Cmd + Shift + E baixar carrossel · Alt + ↓ próximo textarea
           </div>
         </section>
 
