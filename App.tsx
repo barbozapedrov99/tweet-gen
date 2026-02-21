@@ -15,6 +15,43 @@ const App: React.FC = () => {
 
   const MAX_SLIDES = 10;
 
+  const CONTENT_TEMPLATES = [
+    {
+      id: 'educacional',
+      name: 'Educacional (AIDA)',
+      build: (index: number, total: number) => {
+        if (index === 0) return 'Gancho forte: o erro que está travando seu resultado hoje.';
+        if (index === total - 1) return 'CTA: comente "QUERO" para receber o passo a passo completo.';
+        return `Ponto ${index}: explique a ideia principal com exemplo curto e prático.`;
+      }
+    },
+    {
+      id: 'storytelling',
+      name: 'Storytelling',
+      build: (index: number, total: number) => {
+        if (index === 0) return 'Tudo começou quando eu percebi um padrão que ninguém estava falando.';
+        if (index === total - 1) return 'Conclusão + CTA: salve esse carrossel para revisar quando for aplicar.';
+        return `Cena ${index}: descreva o conflito e a virada com objetividade.`;
+      }
+    },
+    {
+      id: 'lista',
+      name: 'Lista (Top insights)',
+      build: (index: number, total: number) => {
+        if (index === 0) return `Top ${Math.max(total - 2, 3)} ideias para melhorar seu conteúdo hoje.`;
+        if (index === total - 1) return 'Qual insight você vai aplicar primeiro? Responda nos comentários.';
+        return `Insight ${index}: dica prática + um micro-exemplo de aplicação.`;
+      }
+    }
+  ] as const;
+
+  const CONTENT_SNIPPETS = [
+    'Hook: você está cometendo esse erro sem perceber.',
+    'Prova: isso aumentou meus resultados em poucos dias.',
+    'Passo prático: abra agora e aplique em 2 minutos.',
+    'CTA: salve esse post para usar depois.'
+  ] as const;
+
   // State
   const [carouselState, setCarouselState] = useState<CarouselState>({
     slides: [DEFAULT_TWEET_DATA],
@@ -184,23 +221,6 @@ const App: React.FC = () => {
     });
   }, [carouselState, cloneCarouselState]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-        if (editingField) return; // Don't undo while typing text
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, editingField]);
-
-
   // --- Input Handlers ---
 
   const handleInputChange = (field: keyof TweetData, value: string) => {
@@ -242,6 +262,89 @@ const App: React.FC = () => {
     }
     preBulkContentStateRef.current = null;
     bulkContentChangedRef.current = false;
+  };
+
+  const handleApplyTemplate = (templateId: string) => {
+    const selected = CONTENT_TEMPLATES.find(template => template.id === templateId);
+    if (!selected) return;
+
+    saveToHistory(carouselState);
+    setCarouselState(prev => ({
+      ...prev,
+      slides: prev.slides.map((slide, index) => ({
+        ...slide,
+        content: selected.build(index, prev.slides.length),
+      })),
+    }));
+  };
+
+  const handleApplySnippetToActiveSlide = (snippet: string) => {
+    saveToHistory(carouselState);
+    updateTweetData(prev => ({
+      ...prev,
+      content: prev.content.trim() ? `${prev.content.trim()}
+
+${snippet}` : snippet,
+    }));
+  };
+
+  const handleCopyStyleToAllSlides = () => {
+    saveToHistory(carouselState);
+    const sourceSlide = carouselState.slides[carouselState.activeSlideIndex];
+
+    setCarouselState(prev => ({
+      ...prev,
+      slides: prev.slides.map((slide, index) => {
+        if (index === prev.activeSlideIndex) return slide;
+        return {
+          ...slide,
+          background: sourceSlide.background,
+          headerPosition: { ...sourceSlide.headerPosition },
+          headerScale: sourceSlide.headerScale,
+          contentPosition: { ...sourceSlide.contentPosition },
+          contentScale: sourceSlide.contentScale,
+          tweetImagePosition: { ...sourceSlide.tweetImagePosition },
+          tweetImageScale: sourceSlide.tweetImageScale,
+        };
+      }),
+    }));
+  };
+
+  const getValidationIssues = useCallback((state: CarouselState): string[] => {
+    const issues: string[] = [];
+
+    state.slides.forEach((slide, index) => {
+      const slideLabel = `Slide ${index + 1}`;
+
+      if (!slide.content.trim()) {
+        issues.push(`${slideLabel}: texto vazio.`);
+      }
+
+      if (slide.content.length > 420) {
+        issues.push(`${slideLabel}: texto muito longo (${slide.content.length} caracteres).`);
+      }
+    });
+
+    return issues;
+  }, []);
+
+  const validateBeforeExport = () => {
+    const issues = getValidationIssues(carouselState);
+    if (issues.length > 0) {
+      setError(`Revise antes de exportar: ${issues[0]}`);
+      return false;
+    }
+    return true;
+  };
+
+  const focusNextBulkTextarea = () => {
+    const activeElement = document.activeElement as HTMLElement | null;
+    const currentIndex = Number(activeElement?.getAttribute('data-slide-index'));
+
+    if (Number.isNaN(currentIndex)) return;
+
+    const next = document.querySelector<HTMLTextAreaElement>(`textarea[data-bulk-textarea="true"][data-slide-index="${currentIndex + 1}"]`);
+    next?.focus();
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -632,6 +735,8 @@ const App: React.FC = () => {
   };
 
   const handleDownload = async () => {
+    if (!validateBeforeExport()) return;
+
     if (previewRef.current) {
       try {
         setGuidelines([]); 
@@ -652,6 +757,7 @@ const App: React.FC = () => {
   };
 
   const handleDownloadCarousel = async () => {
+    if (!validateBeforeExport()) return;
     if (!previewRef.current) return;
 
     const originalSlideIndex = carouselState.activeSlideIndex;
@@ -677,6 +783,78 @@ const App: React.FC = () => {
       setCarouselState(prev => ({ ...prev, activeSlideIndex: originalSlideIndex }));
     }
   };
+
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isModifier = e.metaKey || e.ctrlKey;
+      const target = e.target as HTMLElement | null;
+      const isTypingTarget = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA';
+
+      if (isModifier && e.key === 'z') {
+        if (editingField) return; // Don't undo while typing text
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+        return;
+      }
+
+      if (isModifier && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        handleDownloadCarousel();
+        return;
+      }
+
+      if (isModifier && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        handleDownload();
+        return;
+      }
+
+      if (isModifier && e.key.toLowerCase() === 'd' && !isTypingTarget) {
+        e.preventDefault();
+        handleDuplicateSlide();
+        return;
+      }
+
+      if (isModifier && e.key === 'ArrowRight' && !isTypingTarget) {
+        e.preventDefault();
+        if (carouselState.activeSlideIndex < carouselState.slides.length - 1) {
+          handleSelectSlide(carouselState.activeSlideIndex + 1);
+        }
+        return;
+      }
+
+      if (isModifier && e.key === 'ArrowLeft' && !isTypingTarget) {
+        e.preventDefault();
+        if (carouselState.activeSlideIndex > 0) {
+          handleSelectSlide(carouselState.activeSlideIndex - 1);
+        }
+        return;
+      }
+
+      if (e.altKey && e.key === 'ArrowDown' && target?.getAttribute('data-bulk-textarea') === 'true') {
+        e.preventDefault();
+        focusNextBulkTextarea();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    carouselState.activeSlideIndex,
+    carouselState.slides.length,
+    editingField,
+    handleDownload,
+    handleDownloadCarousel,
+    handleDuplicateSlide,
+    handleRedo,
+    handleSelectSlide,
+    handleUndo,
+  ]);
 
   return (
     <div 
@@ -764,6 +942,55 @@ const App: React.FC = () => {
           </div>
         </section>
 
+        {/* Production Helpers */}
+        <section className="space-y-3 border border-gray-200 rounded-xl p-4 bg-white">
+          <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Acelerar Produção</h2>
+
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 font-medium">Template rápido de roteiro</p>
+            <div className="grid grid-cols-3 gap-2">
+              {CONTENT_TEMPLATES.map(template => (
+                <button
+                  key={template.id}
+                  onClick={() => handleApplyTemplate(template.id)}
+                  className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 rounded-lg"
+                >
+                  {template.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 font-medium">Padronização visual</p>
+            <button
+              onClick={handleCopyStyleToAllSlides}
+              className="w-full text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold py-2 rounded-lg border border-indigo-100"
+            >
+              Copiar estilo do slide atual para todos
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 font-medium">Banco de snippets (slide atual)</p>
+            <div className="flex flex-wrap gap-2">
+              {CONTENT_SNIPPETS.map((snippet, idx) => (
+                <button
+                  key={`snippet-${idx}`}
+                  onClick={() => handleApplySnippetToActiveSlide(snippet)}
+                  className="text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1.5 rounded-md border border-emerald-100"
+                >
+                  + {snippet.split(':')[0]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-2 leading-relaxed">
+            Atalhos: Ctrl/Cmd + ←/→ trocar slide · Ctrl/Cmd + D duplicar · Ctrl/Cmd + E baixar slide · Ctrl/Cmd + Shift + E baixar carrossel · Alt + ↓ próximo textarea
+          </div>
+        </section>
+
         {/* Background Selector */}
         <section className="space-y-4">
              <div className="flex items-center gap-2 mb-2">
@@ -817,46 +1044,35 @@ const App: React.FC = () => {
         <section className="space-y-4">
           <div className="flex items-center gap-2 mb-2">
             <Type size={14} className="text-blue-600" />
-            <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Conteúdo</h2>
+            <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Perfil do Post</h2>
           </div>
           
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-                <input 
-                  type="text" 
-                  value={tweetData.displayName}
-                  onFocus={handleInputFocus}
-                  onBlur={() => handleInputBlur('displayName')}
-                  onChange={(e) => handleInputChange('displayName', e.target.value)}
-                  className="bg-white border border-gray-200 text-gray-900 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 shadow-sm"
-                  placeholder="Nome"
-                />
-                <input 
-                  type="text" 
-                  value={tweetData.handle}
-                  onFocus={handleInputFocus}
-                  onBlur={() => handleInputBlur('handle')}
-                  onChange={(e) => handleInputChange('handle', e.target.value)}
-                  className="bg-white border border-gray-200 text-gray-900 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 shadow-sm"
-                  placeholder="@usuario"
-                />
-            </div>
-            {/* Added Textarea for Content */}
-            <textarea
-                value={tweetData.content}
+          <div className="grid grid-cols-2 gap-3">
+              <input 
+                type="text" 
+                value={tweetData.displayName}
                 onFocus={handleInputFocus}
-                onBlur={() => handleInputBlur('content')}
-                onChange={(e) => handleInputChange('content', e.target.value)}
-                className="w-full bg-white border border-gray-200 text-gray-900 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 shadow-sm resize-none h-32"
-                placeholder="O que está acontecendo?"
-            />
+                onBlur={() => handleInputBlur('displayName')}
+                onChange={(e) => handleInputChange('displayName', e.target.value)}
+                className="bg-white border border-gray-200 text-gray-900 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 shadow-sm"
+                placeholder="Nome"
+              />
+              <input 
+                type="text" 
+                value={tweetData.handle}
+                onFocus={handleInputFocus}
+                onBlur={() => handleInputBlur('handle')}
+                onChange={(e) => handleInputChange('handle', e.target.value)}
+                className="bg-white border border-gray-200 text-gray-900 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 shadow-sm"
+                placeholder="@usuario"
+              />
           </div>
         </section>
 
         {/* Carousel Script Editor */}
         <section className="space-y-4 border-t border-gray-200 pt-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Textos do Carrossel</h2>
+            <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Textos do Carrossel/Post</h2>
             <span className="text-xs text-gray-400">Edite todos os slides de uma vez</span>
           </div>
 
@@ -875,6 +1091,8 @@ const App: React.FC = () => {
                 </div>
                 <textarea
                   value={slide.content}
+                  data-bulk-textarea="true"
+                  data-slide-index={index}
                   onFocus={handleBulkContentFocus}
                   onBlur={handleBulkContentBlur}
                   onChange={(e) => handleBulkContentChange(index, e.target.value)}
@@ -884,6 +1102,20 @@ const App: React.FC = () => {
               </div>
             ))}
           </div>
+        </section>
+
+        {/* Validation */}
+        <section className="space-y-3 border border-amber-200 bg-amber-50/70 rounded-xl p-4">
+          <h2 className="text-[11px] font-bold text-amber-700 uppercase tracking-widest">Checklist antes de exportar</h2>
+          {getValidationIssues(carouselState).length === 0 ? (
+            <p className="text-xs text-emerald-700">Tudo certo para exportar ✅</p>
+          ) : (
+            <ul className="text-xs text-amber-800 list-disc list-inside space-y-1">
+              {getValidationIssues(carouselState).map((issue, index) => (
+                <li key={`validation-${index}`}>{issue}</li>
+              ))}
+            </ul>
+          )}
         </section>
 
         {/* --- MEDIA SECTION --- */}
