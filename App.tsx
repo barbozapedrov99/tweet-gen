@@ -14,6 +14,10 @@ const App: React.FC = () => {
   };
 
   const MAX_SLIDES = 10;
+  const SOFT_TEXT_LIMIT = 220;
+  const HARD_TEXT_LIMIT = 320;
+  const LINEAR_SCRIPT_SEPARATOR = "\n---\n";
+  const AUTOSAVE_STORAGE_KEY = "tweetgen-carousel-autosave-v1";
 
   // State
   const [carouselState, setCarouselState] = useState<CarouselState>({
@@ -25,6 +29,9 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linearScript, setLinearScript] = useState('');
+  const [hasSavedDraft, setHasSavedDraft] = useState(false);
+  const [validationIssueIndex, setValidationIssueIndex] = useState(0);
   
   // Mobile Tabs State
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
@@ -160,6 +167,59 @@ const App: React.FC = () => {
     setRedoStack([]); 
   }, [cloneCarouselState]);
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY);
+      setHasSavedDraft(Boolean(saved));
+    } catch {
+      setHasSavedDraft(false);
+    }
+  }, [AUTOSAVE_STORAGE_KEY]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify(carouselState));
+      setHasSavedDraft(true);
+    } catch {
+      // Ignore autosave errors in restricted environments.
+    }
+  }, [carouselState, AUTOSAVE_STORAGE_KEY]);
+
+  const handleRestoreAutosave = () => {
+    try {
+      const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY);
+      if (!saved) {
+        setError('Nenhum rascunho salvo para restaurar.');
+        return;
+      }
+
+      const parsed = JSON.parse(saved) as CarouselState;
+      if (!Array.isArray(parsed?.slides) || parsed.slides.length === 0) {
+        setError('Rascunho inválido.');
+        return;
+      }
+
+      saveToHistory(carouselState);
+      setCarouselState({
+        slides: parsed.slides.map(cloneSlide),
+        activeSlideIndex: Math.min(Math.max(parsed.activeSlideIndex ?? 0, 0), parsed.slides.length - 1),
+      });
+      setError(null);
+    } catch {
+      setError('Falha ao restaurar rascunho salvo.');
+    }
+  };
+
+  const handleClearAutosave = () => {
+    try {
+      localStorage.removeItem(AUTOSAVE_STORAGE_KEY);
+      setHasSavedDraft(false);
+      setError(null);
+    } catch {
+      setError('Falha ao limpar rascunho salvo.');
+    }
+  };
+
   const handleUndo = useCallback(() => {
     setHistory((prevHistory) => {
       if (prevHistory.length === 0) return prevHistory;
@@ -249,31 +309,164 @@ const App: React.FC = () => {
     }));
   };
 
-  const getValidationIssues = useCallback((state: CarouselState): string[] => {
-    const issues: string[] = [];
+  const getValidationIssueDetails = useCallback((state: CarouselState): { slideIndex: number; message: string }[] => {
+    const issues: { slideIndex: number; message: string }[] = [];
 
     state.slides.forEach((slide, index) => {
       const slideLabel = `Slide ${index + 1}`;
 
       if (!slide.content.trim()) {
-        issues.push(`${slideLabel}: texto vazio.`);
+        issues.push({ slideIndex: index, message: `${slideLabel}: texto vazio.` });
       }
 
-      if (slide.content.length > 420) {
-        issues.push(`${slideLabel}: texto muito longo (${slide.content.length} caracteres).`);
+      if (slide.content.length > HARD_TEXT_LIMIT) {
+        issues.push({
+          slideIndex: index,
+          message: `${slideLabel}: texto muito longo (${slide.content.length} caracteres).`,
+        });
       }
     });
 
     return issues;
-  }, []);
+  }, [HARD_TEXT_LIMIT]);
+
+  const getValidationIssues = useCallback((state: CarouselState): string[] => {
+    return getValidationIssueDetails(state).map(issue => issue.message);
+  }, [getValidationIssueDetails]);
 
   const validateBeforeExport = () => {
-    const issues = getValidationIssues(carouselState);
+    const issues = getValidationIssueDetails(carouselState);
     if (issues.length > 0) {
-      setError(`Revise antes de exportar: ${issues[0]}`);
+      setError(`Revise antes de exportar: ${issues[0].message}`);
       return false;
     }
     return true;
+  };
+
+  const handleReviewNextIssue = () => {
+    const issues = getValidationIssueDetails(carouselState);
+    if (issues.length === 0) {
+      setError(null);
+      return;
+    }
+
+    const nextIndex = validationIssueIndex % issues.length;
+    const target = issues[nextIndex];
+    setValidationIssueIndex(prev => prev + 1);
+    setCarouselState(prev => ({ ...prev, activeSlideIndex: target.slideIndex }));
+    setError(`Revisão: ${target.message}`);
+  };
+
+  const handleGenerateLinearScript = () => {
+    const script = carouselState.slides
+      .map((slide, index) => `Slide ${index + 1}\n${slide.content.trim()}`)
+      .join(LINEAR_SCRIPT_SEPARATOR);
+    setLinearScript(script);
+  };
+
+  const handleApplyLinearScript = () => {
+    const blocks = linearScript
+      .split(/\n-{3,}\n/g)
+      .map(block => block.trim())
+      .filter(Boolean);
+
+    if (blocks.length === 0) {
+      setError('Cole um roteiro válido para aplicar nos slides.');
+      return;
+    }
+
+    const extractedContents = blocks.map(block =>
+      block.replace(/^slide\s*\d+\s*\n/i, '').trim()
+    );
+
+    saveToHistory(carouselState);
+    setCarouselState(prev => {
+      const desiredLength = Math.min(Math.max(extractedContents.length, 1), MAX_SLIDES);
+      const expandedSlides = [...prev.slides];
+
+      while (expandedSlides.length < desiredLength) {
+        expandedSlides.push(cloneSlide(expandedSlides[expandedSlides.length - 1] ?? DEFAULT_TWEET_DATA));
+      }
+
+      const updatedSlides = expandedSlides.slice(0, desiredLength).map((slide, index) => ({
+        ...slide,
+        content: extractedContents[index] ?? slide.content,
+      }));
+
+      return {
+        slides: updatedSlides,
+        activeSlideIndex: Math.min(prev.activeSlideIndex, updatedSlides.length - 1),
+      };
+    });
+    setError(null);
+  };
+
+  const handleApplyLayoutPreset = (preset: 'cover' | 'content' | 'cta') => {
+    saveToHistory(carouselState);
+
+    updateTweetData(prev => {
+      if (preset === 'cover') {
+        return {
+          ...prev,
+          headerScale: 1.1,
+          contentScale: 1.15,
+          headerPosition: { x: 0, y: 0 },
+          contentPosition: { x: 0, y: 30 },
+        };
+      }
+
+      if (preset === 'content') {
+        return {
+          ...prev,
+          headerScale: 0.95,
+          contentScale: 1,
+          headerPosition: { x: 0, y: 0 },
+          contentPosition: { x: 0, y: 0 },
+        };
+      }
+
+      return {
+        ...prev,
+        headerScale: 0.9,
+        contentScale: 1.05,
+        headerPosition: { x: 0, y: 20 },
+        contentPosition: { x: 0, y: -10 },
+      };
+    });
+  };
+
+  const handleApplyLayoutSequence = () => {
+    saveToHistory(carouselState);
+
+    setCarouselState(prev => ({
+      ...prev,
+      slides: prev.slides.map((slide, index) => {
+        if (index === 0) {
+          return {
+            ...slide,
+            headerScale: 1.1,
+            contentScale: 1.15,
+            contentPosition: { x: 0, y: 30 },
+          };
+        }
+
+        if (index === prev.slides.length - 1) {
+          return {
+            ...slide,
+            headerScale: 0.9,
+            contentScale: 1.05,
+            contentPosition: { x: 0, y: -10 },
+          };
+        }
+
+        return {
+          ...slide,
+          headerScale: 0.95,
+          contentScale: 1,
+          contentPosition: { x: 0, y: 0 },
+        };
+      }),
+    }));
   };
 
   const focusNextBulkTextarea = () => {
@@ -775,6 +968,12 @@ const App: React.FC = () => {
         return;
       }
 
+      if (isModifier && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        handleReviewNextIssue();
+        return;
+      }
+
       if (e.key === 'Delete' && !isTypingTarget) {
         e.preventDefault();
         if (carouselState.slides.length > 1) {
@@ -800,6 +999,7 @@ const App: React.FC = () => {
     handleDuplicateSlide,
     handleRemoveSlide,
     handleRedo,
+    handleReviewNextIssue,
     handleSelectSlide,
     handleUndo,
   ]);
@@ -894,6 +1094,21 @@ const App: React.FC = () => {
           <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Acelerar Produção</h2>
 
           <div className="space-y-2">
+            <p className="text-xs text-gray-500 font-medium">Presets de layout (slide atual)</p>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => handleApplyLayoutPreset('cover')} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 rounded-lg">Capa</button>
+              <button onClick={() => handleApplyLayoutPreset('content')} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 rounded-lg">Conteúdo</button>
+              <button onClick={() => handleApplyLayoutPreset('cta')} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 rounded-lg">CTA</button>
+            </div>
+            <button
+              onClick={handleApplyLayoutSequence}
+              className="w-full text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold py-2 rounded-lg border border-blue-100"
+            >
+              Aplicar sequência (capa → conteúdo → CTA)
+            </button>
+          </div>
+
+          <div className="space-y-2">
             <p className="text-xs text-gray-500 font-medium">Padronização visual</p>
             <button
               onClick={handleCopyStyleToAllSlides}
@@ -903,8 +1118,27 @@ const App: React.FC = () => {
             </button>
           </div>
 
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 font-medium">Rascunho automático</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleRestoreAutosave}
+                disabled={!hasSavedDraft}
+                className="text-xs bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40 text-emerald-700 font-semibold py-2 rounded-lg border border-emerald-100"
+              >
+                Restaurar rascunho
+              </button>
+              <button
+                onClick={handleClearAutosave}
+                className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold py-2 rounded-lg border border-rose-100"
+              >
+                Limpar rascunho
+              </button>
+            </div>
+          </div>
+
           <div className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-2 leading-relaxed">
-            Atalhos: Ctrl/Cmd + ←/→ trocar slide · Ctrl/Cmd + D duplicar · Delete remover slide atual · Ctrl/Cmd + E baixar slide · Ctrl/Cmd + Shift + E baixar carrossel · Alt + ↓ próximo textarea
+            Atalhos: Ctrl/Cmd + ←/→ trocar slide · Ctrl/Cmd + D duplicar · Delete remover slide atual · Ctrl/Cmd + J revisar próximo erro · Ctrl/Cmd + E baixar slide · Ctrl/Cmd + Shift + E baixar carrossel · Alt + ↓ próximo textarea
           </div>
         </section>
 
@@ -986,6 +1220,28 @@ const App: React.FC = () => {
           </div>
         </section>
 
+        {/* Roteiro Linear */}
+        <section className="space-y-3 border-t border-gray-200 pt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Roteiro Linear</h2>
+            <span className="text-xs text-gray-400">Separe slides com ---</span>
+          </div>
+          <textarea
+            value={linearScript}
+            onChange={(e) => setLinearScript(e.target.value)}
+            className="w-full bg-white border border-gray-200 text-gray-900 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 shadow-sm resize-none h-32"
+            placeholder="Slide 1
+Seu texto aqui
+---
+Slide 2
+Seu texto aqui"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={handleGenerateLinearScript} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2 rounded-lg">Gerar roteiro dos slides</button>
+            <button onClick={handleApplyLinearScript} className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg">Aplicar roteiro no carrossel</button>
+          </div>
+        </section>
+
         {/* Carousel Script Editor */}
         <section className="space-y-4 border-t border-gray-200 pt-6">
           <div className="flex items-center justify-between">
@@ -1016,6 +1272,20 @@ const App: React.FC = () => {
                   className="w-full bg-gray-50 border border-gray-200 text-gray-900 rounded-md px-3 py-2 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 resize-none h-20"
                   placeholder={`Texto do slide ${index + 1}`}
                 />
+                <div className="mt-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-gray-400">Meta: até {SOFT_TEXT_LIMIT}</span>
+                    <span className={`${slide.content.length > HARD_TEXT_LIMIT ? 'text-rose-600' : slide.content.length > SOFT_TEXT_LIMIT ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      {slide.content.length} caracteres
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`${slide.content.length > HARD_TEXT_LIMIT ? 'bg-rose-500' : slide.content.length > SOFT_TEXT_LIMIT ? 'bg-amber-500' : 'bg-emerald-500'} h-full`}
+                      style={{ width: `${Math.min((slide.content.length / HARD_TEXT_LIMIT) * 100, 100)}%` }}
+                    />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -1023,7 +1293,16 @@ const App: React.FC = () => {
 
         {/* Validation */}
         <section className="space-y-3 border border-amber-200 bg-amber-50/70 rounded-xl p-4">
-          <h2 className="text-[11px] font-bold text-amber-700 uppercase tracking-widest">Checklist antes de exportar</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[11px] font-bold text-amber-700 uppercase tracking-widest">Checklist antes de exportar</h2>
+            <button
+              onClick={handleReviewNextIssue}
+              disabled={getValidationIssueDetails(carouselState).length === 0}
+              className="text-[11px] bg-amber-100 hover:bg-amber-200 disabled:opacity-40 text-amber-800 font-semibold px-2 py-1 rounded-md"
+            >
+              Revisar próximo
+            </button>
+          </div>
           {getValidationIssues(carouselState).length === 0 ? (
             <p className="text-xs text-emerald-700">Tudo certo para exportar ✅</p>
           ) : (
