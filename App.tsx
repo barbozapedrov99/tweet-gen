@@ -71,6 +71,8 @@ const App: React.FC = () => {
 
   // Used to track value before editing started (for text inputs)
   const preEditStateRef = useRef<TweetData | null>(null);
+  const preBulkContentStateRef = useRef<CarouselState | null>(null);
+  const bulkContentChangedRef = useRef(false);
 
   const tweetData = carouselState.slides[carouselState.activeSlideIndex];
 
@@ -214,6 +216,32 @@ const App: React.FC = () => {
       saveToHistory({ ...carouselState, slides: carouselState.slides.map((slide, idx) => idx === carouselState.activeSlideIndex ? preEditStateRef.current! : slide) });
     }
     preEditStateRef.current = null;
+  };
+
+  const handleBulkContentFocus = () => {
+    if (!preBulkContentStateRef.current) {
+      preBulkContentStateRef.current = cloneCarouselState(carouselState);
+      bulkContentChangedRef.current = false;
+    }
+  };
+
+  const handleBulkContentChange = (slideIndex: number, value: string) => {
+    setCarouselState(prev => {
+      const updatedSlides = [...prev.slides];
+      if (updatedSlides[slideIndex].content !== value) {
+        bulkContentChangedRef.current = true;
+      }
+      updatedSlides[slideIndex] = { ...updatedSlides[slideIndex], content: value };
+      return { ...prev, slides: updatedSlides };
+    });
+  };
+
+  const handleBulkContentBlur = () => {
+    if (preBulkContentStateRef.current && bulkContentChangedRef.current) {
+      saveToHistory(preBulkContentStateRef.current);
+    }
+    preBulkContentStateRef.current = null;
+    bulkContentChangedRef.current = false;
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -822,6 +850,39 @@ const App: React.FC = () => {
                 className="w-full bg-white border border-gray-200 text-gray-900 rounded-lg px-4 py-2.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 shadow-sm resize-none h-32"
                 placeholder="O que está acontecendo?"
             />
+          </div>
+        </section>
+
+        {/* Carousel Script Editor */}
+        <section className="space-y-4 border-t border-gray-200 pt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Textos do Carrossel</h2>
+            <span className="text-xs text-gray-400">Edite todos os slides de uma vez</span>
+          </div>
+
+          <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+            {carouselState.slides.map((slide, index) => (
+              <div key={`content-editor-${index}`} className={`rounded-lg border p-3 bg-white ${index === carouselState.activeSlideIndex ? 'border-blue-300 ring-1 ring-blue-200' : 'border-gray-200'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-600">Slide {index + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectSlide(index)}
+                    className="text-[11px] text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    Ver no preview
+                  </button>
+                </div>
+                <textarea
+                  value={slide.content}
+                  onFocus={handleBulkContentFocus}
+                  onBlur={handleBulkContentBlur}
+                  onChange={(e) => handleBulkContentChange(index, e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 text-gray-900 rounded-md px-3 py-2 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 resize-none h-20"
+                  placeholder={`Texto do slide ${index + 1}`}
+                />
+              </div>
+            ))}
           </div>
         </section>
 
