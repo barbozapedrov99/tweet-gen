@@ -279,6 +279,32 @@ const App: React.FC = () => {
     });
   };
 
+  const autoResizeBulkTextarea = (target: HTMLTextAreaElement) => {
+    target.style.height = 'auto';
+    target.style.height = `${Math.max(target.scrollHeight, 110)}px`;
+  };
+
+  const handleBulkContentInput = (e: React.FormEvent<HTMLTextAreaElement>, slideIndex: number) => {
+    autoResizeBulkTextarea(e.currentTarget);
+    handleBulkContentChange(slideIndex, e.currentTarget.value);
+  };
+
+  const handleBulkContentScaleChange = (slideIndex: number, scale: number) => {
+    if (!preBulkContentStateRef.current) {
+      preBulkContentStateRef.current = cloneCarouselState(carouselState);
+      bulkContentChangedRef.current = false;
+    }
+
+    setCarouselState(prev => {
+      const updatedSlides = [...prev.slides];
+      if (updatedSlides[slideIndex].contentScale !== scale) {
+        bulkContentChangedRef.current = true;
+      }
+      updatedSlides[slideIndex] = { ...updatedSlides[slideIndex], contentScale: scale };
+      return { ...prev, slides: updatedSlides };
+    });
+  };
+
   const handleBulkContentBlur = () => {
     if (preBulkContentStateRef.current && bulkContentChangedRef.current) {
       saveToHistory(preBulkContentStateRef.current);
@@ -1246,7 +1272,7 @@ Seu texto aqui"
         <section className="space-y-4 border-t border-gray-200 pt-6">
           <div className="flex items-center justify-between">
             <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Textos do Carrossel/Post</h2>
-            <span className="text-xs text-gray-400">Edite todos os slides de uma vez</span>
+            <span className="text-xs text-gray-400">Edite livremente e ajuste o tamanho do texto por slide</span>
           </div>
 
           <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
@@ -1268,22 +1294,37 @@ Seu texto aqui"
                   data-slide-index={index}
                   onFocus={handleBulkContentFocus}
                   onBlur={handleBulkContentBlur}
-                  onChange={(e) => handleBulkContentChange(index, e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 text-gray-900 rounded-md px-3 py-2 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 resize-none h-20"
+                  onInput={(e) => handleBulkContentInput(e, index)}
+                  className="w-full bg-gray-50 border border-gray-200 text-gray-900 rounded-md px-3 py-2 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm placeholder-gray-400 resize-y min-h-[110px]"
                   placeholder={`Texto do slide ${index + 1}`}
                 />
-                <div className="mt-2">
+                <div className="mt-2 space-y-2">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-gray-400">Meta: até {SOFT_TEXT_LIMIT}</span>
                     <span className={`${slide.content.length > HARD_TEXT_LIMIT ? 'text-rose-600' : slide.content.length > SOFT_TEXT_LIMIT ? 'text-amber-600' : 'text-emerald-600'}`}>
                       {slide.content.length} caracteres
                     </span>
                   </div>
-                  <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                     <div
                       className={`${slide.content.length > HARD_TEXT_LIMIT ? 'bg-rose-500' : slide.content.length > SOFT_TEXT_LIMIT ? 'bg-amber-500' : 'bg-emerald-500'} h-full`}
                       style={{ width: `${Math.min((slide.content.length / HARD_TEXT_LIMIT) * 100, 100)}%` }}
                     />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] text-gray-500 w-20">Tamanho</span>
+                    <input
+                      type="range"
+                      min="0.7"
+                      max="1.4"
+                      step="0.05"
+                      value={slide.contentScale}
+                      onChange={(e) => handleBulkContentScaleChange(index, parseFloat(e.target.value))}
+                      onMouseUp={handleBulkContentBlur}
+                      onTouchEnd={handleBulkContentBlur}
+                      className="flex-1 accent-blue-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <span className="text-[11px] text-gray-500 w-10 text-right">{slide.contentScale.toFixed(2)}x</span>
                   </div>
                 </div>
               </div>
